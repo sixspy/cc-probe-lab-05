@@ -66,6 +66,13 @@
       <h2>夹具预检</h2>
       <div class="表绕"><table><thead><tr><th>夹具</th><th>报文数</th><th>可装</th><th>摘要</th></tr></thead><tbody id="夹具预检表"></tbody></table></div>
     </section>
+    <section class="卷">
+      <h2>乱序重排入栏 · 策略形态</h2>
+      <div id="重排策略" class="竖排"><p class="说明">加载中…</p></div>
+      <div class="表绕 上距12"><table><thead><tr><th>站点键</th><th>指标</th><th>首观测时</th><th>形态标记</th></tr></thead><tbody id="策略裁决表"></tbody></table></div>
+      <div class="双栏 上距12"><p class="说明">甲形态：切流账册按观测时排序后物化，现行缓冲拒按收到序回刷。<br/>乙形态：双写两轨——收到序进只读归档，现行缓冲改读观测时序，两轨读引用不同。</p>
+      <div class="侧注">入栏写入前先重排；重排落库与物化同成同败；重排与结栏同锁互斥。</div></div>
+    </section>
     <section class="卷"><h2>空桩目录</h2><p class="说明" id="空桩"></p>
       <div class="双栏"><p class="说明">栏规钉死当前栏与 PM25 上下限。分指标门槛属于空桩。</p>
       <div class="侧注">版式：底栏铜青。潮切是左侧窗时间轴浅纸底。</div></div>
@@ -75,6 +82,17 @@
       document.getElementById("规").textContent = JSON.stringify(await 探栏.getJSON("/api/栏规"), null, 2);
       const s = await 探栏.getJSON("/api/空桩");
       document.getElementById("空桩").textContent = "空桩 " + s.条数 + "：" + (s.空桩 || []).join(" · ");
+      const 裁 = await 探栏.getJSON("/api/观测序裁决");
+      const tb = document.getElementById("策略裁决表");
+      tb.innerHTML = "";
+      if (!裁.length) { tb.innerHTML = `<tr><td colspan="4">${探栏.空态("尚无在栏观测。")}</td></tr>`; }
+      for (const r of 裁) {
+        const 形 = r.形态标记 === "乱序重排" ? 探栏.徽章("乱序重排","危") : 探栏.徽章("正序","好");
+        tb.appendChild(探栏.行(`<td>${探栏.安全文本(r.站点键)}</td><td>${探栏.安全文本(r.指标键)}</td><td>${探栏.安全文本(r.首观测时)}</td><td>${形}</td>`));
+      }
+      document.getElementById("重排策略").innerHTML =
+        `<div class="只读框"><b class="铜字">乱序重排入栏</b> · 已接主链 · 甲单轨 + 乙双轨（收到序只读归档）</div>` +
+        `<div class="只读框 上距8">只读接口：/api/观测序裁决 · /api/收到序归档 · /api/序对账</div>`;
     })();
     </script>
 

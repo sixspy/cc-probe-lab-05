@@ -1,7 +1,7 @@
 from pathlib import Path
 from quart import Quart, jsonify, request, send_from_directory, redirect
 from app import seed
-from app.services import 目录, 装载, 结栏, 贯验, 夹具, 统计, 说明
+from app.services import 目录, 装载, 结栏, 贯验, 夹具, 统计, 说明, 观测序, 影子序
 
 _STATIC = Path(__file__).resolve().parent / "static"
 app = Quart(__name__)
@@ -56,6 +56,21 @@ async def api_报文():
 @app.get("/api/入栏缓冲")
 async def api_缓冲():
     return jsonify(目录.缓冲列表())
+
+
+@app.get("/api/观测序裁决")
+async def api_观测序裁决():
+    return jsonify(观测序.裁决())
+
+
+@app.get("/api/收到序归档")
+async def api_收到序归档():
+    return jsonify(影子序.归档列表())
+
+
+@app.get("/api/序对账")
+async def api_序对账():
+    return jsonify(贯验.序对账())
 
 
 @app.get("/api/站点汇总账")

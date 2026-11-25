@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 from app.db import 连接
 from app.seed import 此刻
-from app.services import 目录
+from app.services import 目录, 时间, 互斥
 
 
 def 结当前栏() -> dict:
@@ -13,6 +13,7 @@ def 结当前栏() -> dict:
     栏号 = 规.get("当前栏号", "B-demo")
     批 = f"结栏-{uuid.uuid4().hex[:8]}"
     conn = 连接()
+    互斥.栏写锁.acquire()
     try:
         rows = conn.execute(
             "SELECT * FROM 入栏缓冲 WHERE 栏号=? AND 命运='在栏'", (栏号,)
@@ -24,12 +25,24 @@ def 结当前栏() -> dict:
         明细 = []
         时刻 = 此刻()
         for (站点, 指标), evs in groups.items():
+            # 物化按观测序（观测时）而非灌入序，结栏均值时间轴不拧花
+            evs = sorted(
+                evs,
+                key=lambda e: (
+                    e["观测序"] if "观测序" in e.keys() else 0,
+                    时间.观测序排序键(e["观测时"]),
+                ),
+            )
             均值 = sum(float(e["读数"]) for e in evs) / len(evs)
             编号 = f"汇-{栏号}-{站点}-{指标}-{uuid.uuid4().hex[:6]}"
+            序指纹 = ",".join(e["报文编号"] for e in evs)
             conn.execute(
-                """INSERT INTO 站点汇总账(汇总编号,栏号,站点键,指标键,报文数,均值,物化时,命运)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (编号, 栏号, 站点, 指标, len(evs), 均值, 时刻, "已汇总"),
+                """INSERT INTO 站点汇总账(汇总编号,栏号,站点键,指标键,报文数,均值,物化时,命运,首观测时,末观测时,序指纹)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    编号, 栏号, 站点, 指标, len(evs), 均值, 时刻, "已汇总",
+                    evs[0]["观测时"], evs[-1]["观测时"], 序指纹,
+                ),
             )
             for e in evs:
                 conn.execute(
@@ -64,6 +77,7 @@ def 结当前栏() -> dict:
         return 报告
     finally:
         conn.close()
+        互斥.栏写锁.release()
 
 
 def 预览结栏() -> dict:
@@ -80,11 +94,14 @@ def 预览结栏() -> dict:
             groups[(r["站点键"], r["指标键"])].append(dict(r))
         预览 = []
         for (站点, 指标), evs in sorted(groups.items()):
+            evs = sorted(evs, key=lambda e: 时间.观测序排序键(e["观测时"]))
             预览.append({
                 "站点键": 站点,
                 "指标键": 指标,
                 "报文数": len(evs),
                 "均值": round(sum(float(e["读数"]) for e in evs) / len(evs), 4),
+                "首观测时": evs[0]["观测时"],
+                "末观测时": evs[-1]["观测时"],
             })
         return {"栏号": 栏号, "在栏": len(rows), "将汇总组": 预览}
     finally:

@@ -57,10 +57,16 @@ def 缓冲列表(命运: str | None = None) -> list[dict]:
             return [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT * FROM 入栏缓冲 WHERE 命运=? ORDER BY 观测时", (命运,)
+                    "SELECT * FROM 入栏缓冲 WHERE 命运=? ORDER BY 站点键,指标键,观测序",
+                    (命运,),
                 ).fetchall()
             ]
-        return [dict(r) for r in conn.execute("SELECT * FROM 入栏缓冲 ORDER BY 观测时").fetchall()]
+        return [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM 入栏缓冲 ORDER BY 站点键,指标键,观测序"
+            ).fetchall()
+        ]
     finally:
         conn.close()
 

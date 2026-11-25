@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS 入栏缓冲 (
   观测时 TEXT NOT NULL,
   栏号 TEXT NOT NULL,
   命运 TEXT NOT NULL DEFAULT '在栏',
-  入栏时 TEXT NOT NULL
+  入栏时 TEXT NOT NULL,
+  到达序 INTEGER NOT NULL DEFAULT 0,
+  观测序 INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS 站点汇总账 (
   汇总编号 TEXT PRIMARY KEY,
@@ -41,7 +43,19 @@ CREATE TABLE IF NOT EXISTS 站点汇总账 (
   报文数 INTEGER NOT NULL,
   均值 REAL NOT NULL,
   物化时 TEXT NOT NULL,
-  命运 TEXT NOT NULL DEFAULT '已汇总'
+  命运 TEXT NOT NULL DEFAULT '已汇总',
+  首观测时 TEXT NOT NULL DEFAULT '',
+  末观测时 TEXT NOT NULL DEFAULT '',
+  序指纹 TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS 收到序归档 (
+  报文编号 TEXT PRIMARY KEY,
+  站点键 TEXT NOT NULL,
+  指标键 TEXT NOT NULL,
+  读数 REAL NOT NULL,
+  观测时 TEXT NOT NULL,
+  到达序 INTEGER NOT NULL,
+  归档时 TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS 坏点匣 (
   编号 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +73,7 @@ CREATE TABLE IF NOT EXISTS 栏贯验 (
   汇总报文数 INTEGER NOT NULL,
   坏点笔数 INTEGER NOT NULL,
   是否对齐 INTEGER NOT NULL,
+  序对齐 INTEGER NOT NULL DEFAULT 0,
   说明 TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS 装载批次 (
@@ -83,9 +98,33 @@ def 此刻() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _列名(conn, 表: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({表})").fetchall()}
+
+
+def _迁移(conn) -> None:
+    """老库补列：乱序重排（观测序/到达序）与序对账所需字段，幂等。"""
+    补列 = {
+        "入栏缓冲": [("到达序", "INTEGER NOT NULL DEFAULT 0"), ("观测序", "INTEGER NOT NULL DEFAULT 0")],
+        "站点汇总账": [
+            ("首观测时", "TEXT NOT NULL DEFAULT ''"),
+            ("末观测时", "TEXT NOT NULL DEFAULT ''"),
+            ("序指纹", "TEXT NOT NULL DEFAULT ''"),
+        ],
+        "栏贯验": [("序对齐", "INTEGER NOT NULL DEFAULT 0")],
+    }
+    for 表, 列s in 补列.items():
+        已有 = _列名(conn, 表)
+        for 列, 声明 in 列s:
+            if 列 not in 已有:
+                conn.execute(f"ALTER TABLE {表} ADD COLUMN {列} {声明}")
+    conn.commit()
+
+
 def 初始化库() -> None:
     conn = 连接()
     conn.executescript(建表)
+    _迁移(conn)
     if conn.execute("SELECT COUNT(*) AS c FROM 栏规").fetchone()["c"] == 0:
         for k, v in {
             "当前栏号": "B-demo",

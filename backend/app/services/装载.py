@@ -4,7 +4,7 @@ import json
 import uuid
 from app.db import 连接
 from app.seed import 此刻
-from app.services import 校验, 目录, 时间
+from app.services import 校验, 目录, 时间, 观测序, 影子序, 互斥
 
 
 def _批次号(体: dict) -> str:
@@ -24,6 +24,7 @@ def 装一批(体: dict) -> dict:
     站集合 = {s["源键"] for s in 目录.站点列表()}
     仓时 = 此刻()
     conn = 连接()
+    互斥.栏写锁.acquire()
     try:
         for ev in 报文:
             行错 = 校验.校验报文(ev)
@@ -54,14 +55,21 @@ def 装一批(体: dict) -> dict:
                    VALUES (?,?,?,?,?,?,?,?)""",
                 (编号, ev["站点键"], ev["指标键"], 读数, ev["观测时"], 处理, "已装载", 批次),
             )
+            # 乙形态双写：收到序进只读归档，与装载同事务同成同败
+            影子序.归档写入(conn, ev, 读数, 处理)
             报告["入流"] += 1
             ok, 原因 = 校验.过门槛(读数, 规, ev["指标键"])
             if ok:
+                # 入栏写入前先定到达序，落库后立即按观测时重排；
+                # 重排与写入同一连接同一事务，同成同败。
+                到达 = 观测序.下一到达序(conn, ev["站点键"])
+                初观测序 = 观测序.下一观测序(conn, ev["站点键"], ev["指标键"])
                 conn.execute(
-                    """INSERT INTO 入栏缓冲(报文编号,站点键,指标键,读数,观测时,栏号,命运,入栏时)
-                       VALUES (?,?,?,?,?,?,?,?)""",
-                    (编号, ev["站点键"], ev["指标键"], 读数, ev["观测时"], 栏号, "在栏", 处理),
+                    """INSERT INTO 入栏缓冲(报文编号,站点键,指标键,读数,观测时,栏号,命运,入栏时,到达序,观测序)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (编号, ev["站点键"], ev["指标键"], 读数, ev["观测时"], 栏号, "在栏", 处理, 到达, 初观测序),
                 )
+                观测序.重排站点指标(conn, ev["站点键"], ev["指标键"])
                 conn.execute("UPDATE 观测报文 SET 命运=? WHERE 报文编号=?", ("已入栏", 编号))
                 报告["入栏"] += 1
                 报告["明细"].append({
@@ -87,4 +95,5 @@ def 装一批(体: dict) -> dict:
         conn.commit()
     finally:
         conn.close()
+        互斥.栏写锁.release()
     return 报告

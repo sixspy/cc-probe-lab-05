@@ -1,7 +1,8 @@
-"""栏贯验：已汇总缓冲报文数 == 汇总账报文数之和。"""
+"""栏贯验：已汇总缓冲报文数 == 汇总账报文数之和；另做观测序对账。"""
 from __future__ import annotations
 from app.db import 连接
 from app.seed import 此刻
+from app.services import 影子序
 
 
 def 跑一次() -> dict:
@@ -18,16 +19,18 @@ def 跑一次() -> dict:
         ).fetchone()["c"]
         坏点 = conn.execute("SELECT COUNT(*) AS c FROM 坏点匣").fetchone()["c"]
         对齐 = 1 if int(已汇总缓冲) == int(汇总报文) else 0
-        说明 = (
-            "入栏已汇总与站点汇总报文数一致"
-            if 对齐
-            else f"撕裂：已汇总缓冲={已汇总缓冲} 汇总报文={汇总报文}"
-        )
+        序好 = 1 if 影子序.全局序对齐(conn) else 0
+        if 对齐 and 序好:
+            说明 = "入栏已汇总与站点汇总报文数一致，观测序对齐"
+        elif not 对齐:
+            说明 = f"撕裂：已汇总缓冲={已汇总缓冲} 汇总报文={汇总报文}"
+        else:
+            说明 = "笔数对齐但观测序拧花：汇总影子序与现行缓冲序不一致"
         时刻 = 此刻()
         conn.execute(
-            """INSERT INTO 栏贯验(时刻,在栏笔数,汇总报文数,坏点笔数,是否对齐,说明)
-               VALUES (?,?,?,?,?,?)""",
-            (时刻, 在栏, int(汇总报文), 坏点, 对齐, 说明),
+            """INSERT INTO 栏贯验(时刻,在栏笔数,汇总报文数,坏点笔数,是否对齐,序对齐,说明)
+               VALUES (?,?,?,?,?,?,?)""",
+            (时刻, 在栏, int(汇总报文), 坏点, 对齐, 序好, 说明),
         )
         conn.commit()
         return {
@@ -37,10 +40,16 @@ def 跑一次() -> dict:
             "汇总报文": int(汇总报文),
             "坏点": 坏点,
             "是否对齐": bool(对齐),
+            "序对齐": bool(序好),
             "说明": 说明,
         }
     finally:
         conn.close()
+
+
+def 序对账() -> list[dict]:
+    """逐汇总组：现行观测序指纹 vs 影子归档观测时序。"""
+    return 影子序.序对账()
 
 
 def 只读快照() -> dict:
@@ -63,6 +72,7 @@ def 只读快照() -> dict:
             "汇总报文": int(汇总报文),
             "坏点": 坏点,
             "是否对齐": int(已汇总缓冲) == int(汇总报文),
+            "序对齐": 影子序.全局序对齐(conn),
         }
     finally:
         conn.close()
